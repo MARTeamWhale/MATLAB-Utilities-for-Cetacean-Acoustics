@@ -25,12 +25,12 @@ The MUCA library uses MATLAB's packaging system, which consists of folders prefi
 To access the MUCA code within MATLAB, use either dot notation or the "import" statement. For example:
 
 	Using dot notation:
-	*dt = MUCA.time.readDateTime(fileNames)*
+		dt = MUCA.time.readDateTime(fileNames)
 	
-	Using an *import* statement:
-	*import MUCA.time.readDateTime*
-	*dt = readDateTime(fileNames)*
+	Using an import statement:
+		import MUCA.time.readDateTime
+		dt = readDateTime(fileNames)
 	
 See the MATLAB documentation on packages and *import* for more information.
 
-Refer to the headers within each M-file to learn what they do and how to use them (tip: it's also possible to see headers without opening files by using the *help* command in MATLAB).
+Refer to the headers within each M-file to learn what they do and how to use them (tip: it's also possible to see headers without opening files by using the *help* command in MATLAB followed by the M-file name).

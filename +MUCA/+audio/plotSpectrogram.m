@@ -32,7 +32,8 @@ function varargout = plotSpectrogram(varargin)
 %   .......................................................................
 %   "TimeRange" - Time interval to extract audio data from. May be
 %       specified as either numeric seconds, a duration object, or (if the
-%       audio file contains a timestamp) a datetime object. All cases must
+%       audio file contains a timestamp or a starting datetime has been 
+%       specified,) a datetime object. All cases must
 %       be entered as a 2-element vector of increasing values. "TimeRange"
 %       cannot be specified at the same time as "SampleRange".
 %   .......................................................................
@@ -67,7 +68,8 @@ function varargout = plotSpectrogram(varargin)
 %   "XAxisScale" - Char string specifying the scale of the X axis. The
 %       available options are:
 %           'abstime' - plot absolute date-times. Only works if the audio
-%               file has a timestamp.
+%               file has a timestamp, or if 'XAxisStart' has been specified
+%               as a datetime object.
 %           'reltime' - plot relative time (using durations), where the 
 %               audio file starts at 00:00:00.
 %           'sec' - plot relative time in numeric seconds, where the audio 
@@ -77,8 +79,11 @@ function varargout = plotSpectrogram(varargin)
 %               the default.
 %   .......................................................................
 %   "XAxisStart" - Overrides the start time of the spectrogram plot (i.e., 
-%       the time at x = 0). This only works if using relative time. May be 
-%       specified as either a duration object or numeric seconds.
+%       the time at x = 0). May be specified as either a duration object, 
+%       numeric seconds, or a datetime object. Datetime is only supported
+%       if 'XAxisScale' is 'abstime' or 'auto'. Specifying 'XAxisStart' 
+%       with a datetime object will also override any timestamp that may 
+%       be coded in the filename.
 %   .......................................................................
 %
 % OUTPUT ARGUMENTS:
@@ -95,7 +100,7 @@ function varargout = plotSpectrogram(varargin)
 %   
 %
 % Written by Wilfried Beslin
-% Last updated 2023-11-30 using MATLAB R2018b
+% Last updated 2024-01-18 using MATLAB R2018b
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -119,15 +124,15 @@ function varargout = plotSpectrogram(varargin)
 
     p.addRequired('filepath', @isfile)
     p.addParameter('Channel', 1, @(a) validateattributes(a,{'numeric'},{'positive','integer','scalar'}))
-    p.addParameter('SampleRange', [], @(a) validateattributes(a,{'numeric'},{'positive','integer','increasing','numel',2}))
-    p.addParameter('TimeRange', [], @(a) validateattributes(a,{'numeric','duration','datetime'},{'numel',2}))
-    p.addParameter('FreqRange', [], @(a) validateattributes(a,{'numeric'},{'nonnegative','increasing','numel',2}))
+    p.addParameter('SampleRange', [], @(a) validateattributes(a,{'numeric'},{'positive','integer','increasing','row','numel',2}))
+    p.addParameter('TimeRange', [], @(a) validateattributes(a,{'numeric','duration','datetime'},{'row','numel',2}))
+    p.addParameter('FreqRange', [], @(a) validateattributes(a,{'numeric'},{'nonnegative','increasing','row','numel',2}))
     p.addParameter('SpecParams', 'meridian', @(a) validateattributes(a,{'char','struct'},{}))
     p.addParameter('Smooth', false, @(a) validateattributes(a,{'logical'},{'scalar'}))
     p.addParameter('LogFreqs', false, @(a) validateattributes(a,{'logical'},{'scalar'}))
     p.addParameter('ColMap', 'parula', @(a) validateattributes(a,{'char','numeric'},{})) % may be either a colormap string or matrix
     p.addParameter('XAxisScale', 'auto', @(a) validateattributes(a,{'char'},{'row'})) % options are 'auto', 'abstime', or 'reltime'
-    p.addParameter('XAxisStart', [], @(a) validateattributes(a,{'numeric','duration'},{'scalar'}))
+    p.addParameter('XAxisStart', [], @(a) validateattributes(a,{'numeric','duration','datetime'},{'scalar'}))
 
     p.parse(args{:})
 
@@ -151,10 +156,54 @@ function varargout = plotSpectrogram(varargin)
     doLogFreqs = p.Results.LogFreqs;
     colmap = p.Results.ColMap;
     xAxisScaleOpt = lower(p.Results.XAxisScale);
-    xAxisStart = p.Results.XAxisStart; % can be duration or numeric
+    xAxisStart = p.Results.XAxisStart; % can be duration, numeric, or (conditionally) datetime
     
-    % get file timestamp if there is one
-    fileTimestamp = readDateTime(filename);
+    % initialize timestamp (will be obtained later as needed)
+    fileTimeStamp = datetime.empty(0,0);
+    
+    % determine or validate the X-axis scale type
+    switch xAxisScaleOpt
+        case 'auto'
+            % Check if XAxisStart is datetime - if it is, use 'abstime'
+            if isdatetime(xAxisStart)
+                xAxisScale = 'abstime';
+            elseif ~isempty(xAxisStart)
+                % if XAxisStart was specified and is something other than
+                % datetime, then use 'reltime'
+                xAxisScale = 'reltime';
+            else
+                % check if the file has a timestamp
+                fileTimeStamp = readDateTime(filename, 'SuppressWarnings',true);
+                if isnat(fileTimeStamp)
+                    % no timestamp - use 'reltime'
+                    xAxisScale = 'reltime';
+                else
+                    % timestamp found - use 'abstime'
+                    xAxisScale = 'abstime';
+                end
+            end
+            
+        case 'abstime'
+            % check if XAxisStart was specified - if it was, then it must
+            % be datetime
+            if ~isempty(xAxisStart)
+                assert(isdatetime(xAxisStart), 'XAxisStart must be a "datetime" type if XAxisScale == ''abstime''!')
+            else
+                % if XAxisStart was not specified, then the file must have
+                % a timestamp
+                fileTimeStamp = readDateTime(filename, 'SuppressWarnings',true);
+                assert(~isnat(fileTimeStamp), sprintf('Could not read timestamp from file "%s".\nA timestamp must exist if XAxisScale == ''abstime'' and XAxisStart is not specified.',filename));
+            end
+            xAxisScale = xAxisScaleOpt;
+            
+        case {'reltime','sec'}
+            % make sure XAxisStart is not datetime
+            assert(~isdatetime(xAxisStart), 'XAxisStart cannot be datetime when XAxisScale == ''reltime'' or ''sec''!')
+            xAxisScale = xAxisScaleOpt;
+                
+        otherwise
+            error('''%s'' is not a supported option for XAxisScale', xAxisScaleOpt)
+    end
 
     % get sampling rate and number of samples of input file
     filedata = audioinfo(filepath);
@@ -177,7 +226,10 @@ function varargout = plotSpectrogram(varargin)
         case 'samples'
             sampleRange = interval;
         case 'time'
-            sampleRange = processTimeRange(interval, fs, fileTimestamp);
+            if isempty(fileTimeStamp) && isdatetime(interval)
+                fileTimeStamp = readDateTime(filename, 'SuppressWarnings',true);
+            end
+            sampleRange = processTimeRange(interval, fs, fileTimeStamp, xAxisStart);
         case 'none'
             sampleRange = [1, numSamplesTotal];
     end
@@ -236,30 +288,22 @@ function varargout = plotSpectrogram(varargin)
     %specPLogNorm = specPLog - min(specPLog(:));
     %specPLogNorm = specPLog/max(specPLog(:));
     
-    % set x-axis scale for plot
-    if strcmp(xAxisScaleOpt, 'auto')
-        % check if file has a timestamp; if so, use absolute time,
-        % otherwise use relative time.
-        if isnat(fileTimestamp)
-            xAxisScale = 'reltime';
-        else
-            xAxisScale = 'abstime';
-        end
-    else
-        xAxisScale = xAxisScaleOpt;
-    end
-    
+    % set x-axis properties based on input
     %relTStart = duration(0, 0, (extendedSampleRange(1)-1)./fs);
     relTStart = timeRange(1);
     switch xAxisScale
         case 'abstime'
-            if ~isempty(xAxisStart)
-                warning('Ignoring ''XAxisStart'' since absolute time will be used')
+            if isempty(xAxisStart)
+                % use timestamp
+                tStartPlot = relTStart + fileTimeStamp;
+            else
+                % use specified start time
+                tStartPlot = xAxisStart;
             end
-            tStartPlot = relTStart + fileTimestamp;
             specTPlot = duration(0, 0, specTAdjusted) + tStartPlot;
             tRangePlot = [tStartPlot, tStartPlot + timeSpan];
             xLabelStr = 'Date-Time';
+            
         case 'reltime'
             if ~isempty(xAxisStart)
                 if isduration(xAxisStart)
@@ -273,6 +317,7 @@ function varargout = plotSpectrogram(varargin)
             specTPlot = duration(0, 0, specTAdjusted) + tStartPlot;
             tRangePlot = [tStartPlot, tStartPlot + timeSpan];
             xLabelStr = 'Time [hh:mm:ss]';
+            
         case 'sec'
             % display as seconds
             if ~isempty(xAxisStart)
@@ -287,6 +332,7 @@ function varargout = plotSpectrogram(varargin)
             specTPlot = specTAdjusted + tStartPlot;
             tRangePlot = [tStartPlot, tStartPlot + seconds(timeSpan)];
             xLabelStr = 'Time [s]';
+            
         otherwise
             error('''%s'' is not a supported option for XAxisScale', xAxisScale)
     end
@@ -387,17 +433,19 @@ end
 
 
 %% processTimeRange -------------------------------------------------------
-function sampleRange = processTimeRange(interval, fs, dtStart)
+function sampleRange = processTimeRange(interval, fs, fileDTStart, xAxisStart)
 % Convert absolute or relative time range into samples
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
     % process absolute or relative time forms
     if isdatetime(interval)
         % absolute time; use file timestamp
-        if isnat(dtStart)
-            error('Cannot process absolute date-time range because timestamp could not be read')
+        if isnat(fileDTStart)
+            error('Cannot process absolute date-time range because no valid timestamp was found')
+        elseif isdatetime(xAxisStart)
+            warning('Using absolute time intervals to isolate samples, but a starting date-time for the plot has been specified manually. The times displayed on the plot could be incorrect.')
         end
-        intSeconds = seconds(interval - dtStart);
+        intSeconds = seconds(interval - fileDTStart);
     elseif isduration(interval)
         % relative time as duration object
         intSeconds = seconds(interval);

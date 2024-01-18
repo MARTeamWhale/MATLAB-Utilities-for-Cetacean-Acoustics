@@ -14,18 +14,23 @@ function dt = readDateTime(fileNames, varargin)
 % SYNTAX:
 %   dt = readDateTime(fileNames)
 %   dt = readDateTime(fileNames, dtFormat)
+%   dt = readDateTime(__, 'SuppressWarnings',value)
 %
 % INPUT ARGUMENTS:
 %   .......................................................................
 %   "fileNames" - char string or cell array of char strings containing the
 %       names of files with timestamps
 %   .......................................................................
-%   "dtFormat" - char string representing the date-time display format to
-%       use (see "https://www.mathworks.com/help/matlab/ref/datetime.html#buhzxmk-1-Format").
+%   "dtFormat" [OPTIONAL] - char string representing the date-time display 
+%       format to use (see "https://www.mathworks.com/help/matlab/ref/datetime.html#buhzxmk-1-Format").
 %       If not specified, the format will be determined automatically using
 %       a simplified ISO 8601 format that may or may not display
 %       milliseconds, depending on whether this information is included in
 %       the timestamps or not.
+%   .......................................................................
+%   "SuppressWarnings" [OPTIONAL, NAME-VALUE PAIR] - logical value that
+%       determines if warnings should be hidden or not. Default is false. 
+%       Warnings appear if timestamps could not be read from filenames.
 %   .......................................................................
 %
 % OUTPUT ARGUMENTS:
@@ -41,7 +46,7 @@ function dt = readDateTime(fileNames, varargin)
 %
 %
 % Written by Wilfried Beslin
-% Last Updated 2023-12-01 using MATLAB R2018b
+% Last Updated 2024-01-18 using MATLAB R2018b
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % DEV NOTES
@@ -52,15 +57,23 @@ function dt = readDateTime(fileNames, varargin)
     
     import MUCA.time.isoFormat
     
-    narginchk(1,2);
-    
-    if nargin == 1
-        dtFormat = '';
-    elseif nargin == 2
-        dtFormat = varargin{1};
+    % parse input
+    p = inputParser();
+    p.addRequired('fileNames', @(val)ischar(val)||iscellstr(val))
+    if nargin == 2 || nargin == 4
+        p.addRequired('dtFormat', @ischar)
     end
+    p.addParameter('SuppressWarnings', false, @(val)validateattributes(val,{'logical'},{'scalar'}))
     
-    % convert input to cellstr if it isn't already
+    p.parse(fileNames,varargin{:});
+    if ismember('dtFormat',fieldnames(p.Results))
+        dtFormat = p.Results.dtFormat;
+    else
+        dtFormat = '';
+    end
+    showWarnings = ~p.Results.SuppressWarnings;
+    
+    % convert fileNames to cellstr if it isn't already
     fileNames = cellstr(fileNames);
     numFiles = numel(fileNames);
     
@@ -93,7 +106,9 @@ function dt = readDateTime(fileNames, varargin)
             has_ms(ii) = has_ms_ii;
         catch
             % unable to read datetime
-            warning('Could not read timestamp for file "%s"', fileNames{ii})
+            if showWarnings
+                warning('Could not read timestamp for file "%s"', fileNames{ii})
+            end
         end
     end
     

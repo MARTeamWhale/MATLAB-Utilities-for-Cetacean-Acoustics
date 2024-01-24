@@ -1,6 +1,6 @@
 function errMsg = writeTextFile(txt, filePath, varargin)
 %
-% Write a char string or cell array of strings to a text file.
+% Write a literal char string or cell array of strings to a text file.
 %
 % SYNTAX:
 %   errMsg = writeTextFile(txt, filePath)
@@ -41,7 +41,7 @@ function errMsg = writeTextFile(txt, filePath, varargin)
 %
 %
 % Written by Wilfried Beslin
-% Last Updated 2023-12-01 using MATLAB R2018b
+% Last Updated 2024-01-24 using MATLAB R2018b
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -55,10 +55,13 @@ function errMsg = writeTextFile(txt, filePath, varargin)
     p.parse(txt, filePath, varargin{:})
     existingFileOpt = validatestring(lower(p.Results.existingFileOpt), {'prompt','overwrite','append','cancel'});
     
-    % convert cellstr to char
-    if iscellstr(txt)
-        txt = strjoin(txt, '\n');
+    % convert char to cellstr
+    if ischar(txt)
+        txt = cellstr(txt);
     end
+    
+    % get number of lines
+    numLines = numel(txt);
     
     % handle existing files
     if isfile(filePath)
@@ -110,7 +113,8 @@ function errMsg = writeTextFile(txt, filePath, varargin)
     try
         [fid, errMsg] = fopen(filePath, openType);
         if fid ~= -1
-            fprintf(fid, txt);
+            strFormat = [repmat('%s\n', 1, numLines-1), '%s'];
+            fprintf(fid, strFormat, txt{:});
             fclose(fid);
         end
     catch ME

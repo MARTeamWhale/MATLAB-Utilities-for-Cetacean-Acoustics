@@ -12,7 +12,7 @@ classdef Spectrogram
 % group of values to zero, etc.
 %
 % Written by Wilfried Beslin
-% Last Updated 2023/08/19
+% Last Updated 2025/03/07
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
@@ -21,10 +21,10 @@ classdef Spectrogram
         psd_db      % power spectral density matrix, in dB (f-by-t)
     end
     properties (SetAccess = private)
-        f           % frequency bins (column vector), in Hz
+        f           % DFT frequency points (column vector), in Hz
     end
     properties (SetAccess = private, Dependent)
-        t           % time bins (row vector) - may be numeric seconds, duration, or datetime depending on 't_start'
+        t           % STFT time points (row vector) - may be numeric seconds, duration, or datetime depending on 't_start'. A time point corresponds to the midpoint of a STFT frame.
     end
     properties (SetAccess = private)
         t_relative  % relative time bins (i.e., where first time bin follows 0), in seconds
@@ -328,7 +328,10 @@ classdef Spectrogram
         %   "log_freqs" - Boolean value, determines if frequencies are
         %       plotted on log scale or not
         %   ...............................................................
-        %   The rest are identical to the "truncate" method in this class
+        %   The rest are identical to the Name-Value pairs supported by the
+        %   "surf" method in this class. This includes the "type"
+        %   parameter, which may be either 'pixels' (default) or 'smooth';
+        %   the remaining args are passed to the "truncate" method.
         %   ...............................................................
         %
         % OUTPUT ARGUMENTS:
@@ -349,10 +352,10 @@ classdef Spectrogram
             p.parse(varargin{:});
             ax = p.Results.ax;
             log_freqs = p.Results.log_freqs;
-            trunc_args = [fieldnames(p.Unmatched), struct2cell(p.Unmatched)]';
+            surf_args = [fieldnames(p.Unmatched), struct2cell(p.Unmatched)]';
         
             % make plot
-            obj.surf(ax, trunc_args{:});
+            obj.surf(ax, surf_args{:});
             
             % tweak plot
             axis(ax, 'xy');
@@ -395,7 +398,21 @@ classdef Spectrogram
         %   ...............................................................
         %   
         %   Optional (Name-Value Pairs)
-        %   Identical to the "truncate" method in this class
+        %   ...............................................................
+        %   "type" - char string that describes the type of surface plot to
+        %       make to represent the spectrogram. The options are:
+        %
+        %       'pixels' (default) - each face of the surface is centred on
+        %           a specific time-frequency point, and has solid
+        %           colouring that corresponds to the PSD value of that
+        %           point.
+        %       'smooth' - faces represent transitions between
+        %           time-frequency points, as opposed to the points
+        %           themselves. The colour of each face is non-uniform, and
+        %           changes gradually from one vertex to another.
+        %   ...............................................................
+        %   The rest are identical to the "truncate" method in this class
+        %   ...............................................................
         %
         % OUTPUT ARGUMENTS:
         %   ...............................................................
@@ -405,47 +422,81 @@ classdef Spectrogram
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         
             nargoutchk(0, 1)
-            
-            % check if first input is an Axes object
-            n_args = numel(varargin);
-            if n_args > 0 && isa(varargin{1}, 'matlab.graphics.axis.Axes')
-                ax = varargin{1};
-                params = varargin(2:end);
-            else
-                ax = gca();
-                params = {};
-            end
+
+            % parse input
+            p = inputParser;
+            p.KeepUnmatched = true;
+            p.addOptional('ax', gca)
+            p.addParameter('type', 'pixels')
+
+            p.parse(varargin{:});
+            ax = p.Results.ax;
+            surf_type = lower(p.Results.type);
+            surf_type = validatestring(surf_type, {'pixels','smooth'});
+            trunc_args = [fieldnames(p.Unmatched), struct2cell(p.Unmatched)]';
             
             % truncate spectrogram if needed
-            obj_plot = obj.truncate(params{:});
+            obj_plot = obj.truncate(trunc_args{:});
             
-            % prepare data for plotting
-            %%% According to the MATLAB doc:
-            %%%     "The time values in <t> correspond to the midpoint of
-            %%%     each segment."
-            %%% However, the surf() function does not plot bins - its data
-            %%% points correspond to edges. Therefore, create new
-            %%% variables that correspond to the start of each segment
-            %%% for plotting instead. Furthermore, the last points should
-            %%% be replicated to ensure that the final bins are plotted.
-            if isnumeric(obj.t)
-                delta_t = obj_plot.dt;
-            else
-                delta_t = seconds(obj_plot.dt);
+            % prepare data for plotting, depending on surface type
+            switch surf_type
+                case 'pixels'
+                    % For this surface type, we want faces that are centred
+                    % on time-frequency points. Remember that the data
+                    % points in a Surface object correspond to vertices,
+                    % not faces; thus, to centre each face, we need to
+                    % shift the time points by -dt/2. Likewise, the
+                    % frequency points must also be shifted by -df/2.
+                    % Finally, we also need to add an additional time point
+                    % and an additional frequency point at the end of each
+                    % vector to be able to generate faces for the last time
+                    % and frequency bins, respectively.
+                    %
+                    % This type of surface will have a 'FaceColor' value
+                    % set to 'flat', which means that each face will be
+                    % coloured according to the value of its lower-left
+                    % vertex (i.e., the time-frequency point that the face
+                    % represents).
+                    face_col_type = 'flat';
+
+                    if isnumeric(obj.t)
+                        delta_t = obj_plot.dt;
+                    else
+                        delta_t = seconds(obj_plot.dt);
+                    end
+                    
+                    %%% shift time points and add extra one at the end
+                    t_plot = obj_plot.t - delta_t/2;
+                    t_plot = [t_plot, t_plot(end) + delta_t];
+                    
+                    %%% shift frequency points and add extra one at the end
+                    f_plot = obj_plot.f - obj_plot.df/2;
+                    f_plot = [f_plot; f_plot(end) + obj_plot.df];
+                    
+                    %%% add an additional row and column at the ends of the
+                    %%% PSD matrix
+                    psd_plot = obj_plot.psd_db;
+                    psd_plot = [psd_plot, psd_plot(:,end)];
+                    psd_plot = [psd_plot; psd_plot(end,:)];
+                case 'smooth'
+                    % For this surface type, the surface data points will
+                    % correspond exactly to the spectrogram time-frequency
+                    % points. The faces will represent transitions between
+                    % these points; but in order to make the spectrogram
+                    % colours properly correspond to the power at each
+                    % point, we must set the 'FaceColor' property to
+                    % 'interp'.
+                    face_col_type = 'interp';
+
+                    t_plot = obj_plot.t;
+                    f_plot = obj_plot.f;
+                    psd_plot = obj_plot.psd_db;
+                otherwise
+                    error('Invalid surface type')
             end
             
-            t_plot = obj_plot.t - delta_t/2;
-            t_plot = [t_plot, t_plot(end) + delta_t];
-            
-            f_plot = obj_plot.f - obj_plot.df/2;
-            f_plot = [f_plot; f_plot(end) + obj_plot.df];
-            
-            psd_plot = obj_plot.psd_db;
-            psd_plot = [psd_plot, psd_plot(:,end)];
-            psd_plot = [psd_plot; psd_plot(end,:)];
-            
             % create surface
-            s = surf(ax, t_plot, f_plot, psd_plot, 'EdgeColor','none');
+            s = surf(ax, t_plot, f_plot, psd_plot, 'EdgeColor','none', 'FaceColor',face_col_type);
             
             % return surface object if needed
             if nargout > 0

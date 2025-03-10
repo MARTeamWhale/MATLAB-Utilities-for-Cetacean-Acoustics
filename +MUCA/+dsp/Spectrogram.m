@@ -73,13 +73,24 @@ classdef Spectrogram
         %       spectrogram should be smoothed with a Gaussian kernal.
         %       Default is false.
         %   ...............................................................
+        %   "t_start" - Reference start time for t vector. May be either
+        %       numeric seconds, a duration object, or a datetime object.
+        %       The data type of t_start determines the data type of the
+        %       whole t vector.
+        %
+        %       NOTE: since t corresponds to the midpoint of STFT frames,
+        %       t(1) is not equal to t_start. Rather, all values of t are
+        %       measured relative to t_start.
+        %
+        %       Default is 0 (numeric).
+        %   ...............................................................
         %   
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             p = inputParser;
             p.addParameter('params', 'meridian');
             p.addParameter('smooth', false);
-            p.addParameter('t_start', 0); % start time for t vector; determines vector type (numeric, duration, or datetime)
+            p.addParameter('t_start', 0);
 
             p.parse(varargin{:});
             params = p.Results.params;

@@ -12,7 +12,7 @@ classdef Spectrogram
 % group of values to zero, etc.
 %
 % Written by Wilfried Beslin
-% Last Updated 2025/03/07
+% Last Updated 2025/03/10
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
@@ -213,8 +213,17 @@ classdef Spectrogram
         function obj = smooth(obj)
         % smooth spectrogram with 2D Gaussian kernel function
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-            M = [1,2,1; 2,4,2; 1,2,1];
-            psd_smooth = conv2(obj.psd, M);
+
+            % define the Gaussian smoothing kernel matrix
+            %%% Here the kernel matrix is divided by the sum of all
+            %%% elements - this is done because using the original
+            %%% [1,2,1; 2,4,2; 1,2,1] matrix actually changes the scale of
+            %%% the magnitudes being smoothed, which is not good
+            spec_smooth_kernel = [1,2,1; 2,4,2; 1,2,1];
+            spec_smooth_kernel = spec_smooth_kernel./sum(spec_smooth_kernel(:));
+
+            % convolve the PSD matrix with the smoothing kernel
+            psd_smooth = conv2(obj.psd, spec_smooth_kernel);
             psd_smooth = psd_smooth(2:(end-1), 2:(end-1));
             obj.psd = psd_smooth;
         end

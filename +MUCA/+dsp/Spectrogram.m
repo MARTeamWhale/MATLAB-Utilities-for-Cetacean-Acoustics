@@ -211,20 +211,32 @@ classdef Spectrogram
         
         % smooth ----------------------------------------------------------
         function obj = smooth(obj)
-        % smooth spectrogram with 2D Gaussian kernel function
+        % Smooth spectrogram with a 2D Gaussian kernel function.
+        % The method is based on:
+        %   Baumgartner and Mussoline (2011), "A generalized baleen whale
+        %   call detection and classification system". J. Acoust. Soc. Am. 
+        %   129: 2889-2902. 
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-            % define the Gaussian smoothing kernel matrix
-            %%% Here the kernel matrix is divided by the sum of all
-            %%% elements - this is done because using the original
-            %%% [1,2,1; 2,4,2; 1,2,1] matrix actually changes the scale of
-            %%% the magnitudes being smoothed, which is not good
-            spec_smooth_kernel = [1,2,1; 2,4,2; 1,2,1];
-            spec_smooth_kernel = spec_smooth_kernel./sum(spec_smooth_kernel(:));
+            % define Gaussian smoothing kernel
+            M = [1,2,1; 2,4,2; 1,2,1];
 
-            % convolve the PSD matrix with the smoothing kernel
-            psd_smooth = conv2(obj.psd, spec_smooth_kernel);
-            psd_smooth = psd_smooth(2:(end-1), 2:(end-1));
+            % duplicate the time and frequency edges of the spectrogram to
+            % prepare for edge effects
+            psd_anal = obj.psd;
+            psd_anal = [psd_anal(:,1), psd_anal, psd_anal(:,end)];
+            psd_anal = [psd_anal(1,:); psd_anal; psd_anal(end,:)];
+
+            % convolve the spectrogram matrix with the smoothing kernel
+            %%% the matrix must also be divided by the sum of the smoothing
+            %%% kernel elements to preserve the scale
+            psd_smooth = conv2(psd_anal, M)./sum(M(:));
+
+            % remove the edges introduced by both edge duplication and
+            % convolution (2 levels)
+            psd_smooth = psd_smooth(3:(end-2), 3:(end-2));
+
+            % set smoothed matrix as the PSD of the new object
             obj.psd = psd_smooth;
         end
         

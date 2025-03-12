@@ -3,6 +3,10 @@ function varargout = plotSpectrogram(varargin)
 % Plots a spectrogram from a section of an input audio file.
 % If a particular section is not specified, will plot the full file.
 %
+% Note that this function relies on the MUCA.dsp.Spectrogram class. Some of
+% the input arguments that can be specified here are passed directly to
+% MUCA.dsp.Spectrogram.
+%
 % SYNTAX:
 %   plotSpectrogram(filepath)
 %   plotSpectrogram(filepath, Name, Value)
@@ -42,18 +46,14 @@ function varargout = plotSpectrogram(varargin)
 %       Default is [0, fs/2].
 %   .......................................................................
 %   "SpecParams" - Spectrogram parameters. This may be either a char string
-%       specifying one of the available pre-determined sets of parameters, 
-%       or a struct with custom parameters. Available presets include:
-%           'meridian' (default), 'vanderlaan', 'flogeras', 'baumgartner',
-%           'pamlab_general', and 'pamlab_whistles'.
-%       If using a struct, it must contain exactly the following fields:
-%           'win' - window size
-%           'ovl' - amount of overlapping samples
-%           'nfft' - samples to use in FFT
+%       specifying one of the available pre-determined sets of parameters
+%       in the MUCA.dsp.Spectrogram class, or a struct of parameters
+%       accepted by MUCA.dsp.Spectrogram. See the class documentation for
+%       details.
 %   .......................................................................
 %   "Smooth" - Boolean value (true/false) specifying whether or not the 
-%       spectrogram should be smoothed with a Gaussian kernal. Default is
-%       false.
+%       spectrogram should be smoothed with a Gaussian kernal (see
+%       MUCA.dsp.Spectrogram for details). Default is false.
 %   .......................................................................
 %   "LogFreqs" - Boolean value (true/false) specifying whether or not the 
 %       frequency axis should use a logarithmic scale. Default is false.
@@ -85,6 +85,18 @@ function varargout = plotSpectrogram(varargin)
 %       with a datetime object will also override any timestamp that may 
 %       be coded in the filename.
 %   .......................................................................
+%   "CentreFirstSample" - Boolean value (true/false) specifying if the
+%       first sample in the range of interest should occur at the centre of
+%       a STFT frame (true) or the beginning (false). Setting it at the
+%       beginning is the usual behaviour (at least when using MATLAB's
+%       "spectrogram" function), but this means that the first few samples
+%       may be attenuated by the window function. The default is false.
+%   .......................................................................
+%   "PlotType" - char string that determines if the spectrogram plot should
+%       appear granualar ('pixels') or smooth ('smooth'). This is
+%       equivalent to the 'type' parameter in MUCA.dsp.Spectrogram.plot.
+%       The default is 'pixels'.
+%   .......................................................................
 %
 % OUTPUT ARGUMENTS:
 %   Optional
@@ -97,15 +109,17 @@ function varargout = plotSpectrogram(varargin)
 %
 % DEPENDENCIES:
 %   MUCA.time.readDateTime
+%   MUCA.dsp.Spectrogram
 %   
 %
 % Written by Wilfried Beslin
-% Last updated 2024-01-18 using MATLAB R2018b
+% Last updated 2025-03-12 using MATLAB R2024a
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 
     import MUCA.time.readDateTime
+    import MUCA.dsp.Spectrogram
 
     nargoutchk(0,1)
 
@@ -133,6 +147,8 @@ function varargout = plotSpectrogram(varargin)
     p.addParameter('ColMap', 'parula', @(a) validateattributes(a,{'char','numeric'},{})) % may be either a colormap string or matrix
     p.addParameter('XAxisScale', 'auto', @(a) validateattributes(a,{'char'},{'row'})) % options are 'auto', 'abstime', or 'reltime'
     p.addParameter('XAxisStart', [], @(a) validateattributes(a,{'numeric','duration','datetime'},{'scalar'}))
+    p.addParameter('CentreFirstSample', false, @(a) validateattributes(a,{'logical'},{'scalar'}))
+    p.addParameter('PlotType', 'pixels', @(a) validateattributes(a,{'char'},{'row'}))
 
     p.parse(args{:})
 
@@ -157,6 +173,8 @@ function varargout = plotSpectrogram(varargin)
     colmap = p.Results.ColMap;
     xAxisScaleOpt = lower(p.Results.XAxisScale);
     xAxisStart = p.Results.XAxisStart; % can be duration, numeric, or (conditionally) datetime
+    centreFirstSample = p.Results.CentreFirstSample;
+    plotType = p.Results.PlotType;
     
     % initialize timestamp (will be obtained later as needed)
     fileTimeStamp = datetime.empty(0,0);
@@ -211,31 +229,77 @@ function varargout = plotSpectrogram(varargin)
     numSamplesTotal = filedata.TotalSamples;
 
     % process spectrogram parameters
-    if ischar(specParamOpt)
-        specParams = getPresetSpecParams(specParamOpt, fs);
+    %%% while the dsp.Spectrogram constructor could take care of this, the
+    %%% parameters must be pre-processed here to ensure that the
+    %%% appropriate number of buffer samples required for plotting can be
+    %%% determined.
+    if ischar(specParamOpt) || isstring(specParamOpt)
+        specParams = Spectrogram.get_preset_parameters(specParamOpt, fs);
     else
         specParams = specParamOpt;
     end
-    validateSpecParams(specParams)
-    sampleStep = specParams.win - specParams.ovl;
 
-    % get sample range to isolate
-    sampleBuffer = specParams.win; % spectrogram edges may not show if this is too small
-    timeBuffer = duration(0, 0, sampleBuffer./fs);
+    if ischar(specParams.winfcn) || isstring(specParams.winfcn)
+        numFrameSamples = specParams.winsize;
+    else
+        numFrameSamples = numel(specParams.winfcn);
+    end
+    sampleStep = numFrameSamples - specParams.novl;
+
+    % get the base sample range (i.e. the samples of interest)
     switch intervalType
         case 'samples'
-            sampleRange = interval;
+            targetSampleRange = interval;
         case 'time'
             if isempty(fileTimeStamp) && isdatetime(interval)
                 fileTimeStamp = readDateTime(filename, 'SuppressWarnings',true);
             end
-            sampleRange = processTimeRange(interval, fs, fileTimeStamp, xAxisStart);
+            targetSampleRange = processTimeRange(interval, fs, fileTimeStamp, xAxisStart);
         case 'none'
-            sampleRange = [1, numSamplesTotal];
+            targetSampleRange = [1, numSamplesTotal];
     end
-    extendedSampleRange = sampleRange + [-sampleBuffer, sampleBuffer];
-    timeRange = duration(0, 0, (sampleRange-1)./fs);
-    timeSpan = diff(timeRange);
+    targetTimeRange = duration(0, 0, (targetSampleRange-1)./fs);
+    targetTimeSpan = diff(targetTimeRange);
+    numTargetSamples = targetSampleRange(2) - targetSampleRange(1) + 1;
+
+    % determine the number of left-side buffer samples
+    %%% this is necessary to ensure that the plotted range does not start
+    %%% with a blank. To achieve this, the midpoint of the first frame must
+    %%% be equal to or slightly earlier than the index of the first sample.
+    %%% But this must be done carefully to make sure that the first sample
+    %%% is positioned where we expect it to be in the first full data frame
+    %%% (i.e., centred or at the beginning).
+    if centreFirstSample
+        % in this case, the first STFT frame should start when half (or
+        % just over half) of the frame covers the signal
+        leftSampleBuffer = floor(numFrameSamples/2);
+    else
+        % in this case, want the first sample to occur at the beginning of
+        % a STFT frame. But there needs to be other frames before this,
+        % otherwise the left edge of the plot will be blank. This means
+        % there should be a left-side buffer that is equal to enough step
+        % sizes that the midpoint of the first frame is equal to or just
+        % smaller than 1.
+        leftSampleBuffer = sampleStep*ceil((numFrameSamples/2)/sampleStep);
+    end
+    leftTimeBuffer = duration(0, 0, leftSampleBuffer/fs);
+
+    % determine the number of right-side buffer samples
+    %%% similarly to the left side, the right side should contain just
+    %%% enough samples to ensure that the midpoint time of the last STFT
+    %%% frame is equal to or slightly over the time of the last sample, to
+    %%% avoid having a blank on the right side.
+    stftInitialFrameStarts = (1 - leftSampleBuffer):sampleStep:numTargetSamples;
+    stftInitialFrameMidpoints = stftInitialFrameStarts + numFrameSamples/2;
+    numFinalFrames = find(stftInitialFrameMidpoints >= numTargetSamples, 1, 'first');
+
+    stftFrameStarts = stftInitialFrameStarts(1:numFinalFrames);
+    stftFrameStops = stftFrameStarts + numFrameSamples;
+
+    rightSampleBuffer = stftFrameStops(end) - numTargetSamples;
+
+    % isolate the part of the time series to use in the STFT
+    extendedSampleRange = targetSampleRange + [-leftSampleBuffer, rightSampleBuffer];
     
     % keep track of regions that are out of bounds
     excessLeft = max([0, 1 - extendedSampleRange(1)]);
@@ -247,95 +311,58 @@ function varargout = plotSpectrogram(varargin)
     x = x(:, channel);
     
     % pad with zeros if needed
+    %** THOUGHT: there could be different padding types: zeros, endpoint
+    %** replication, mirroring, random noise... something to experiment
+    %** with perhaps.
     x = [zeros(excessLeft,1); x; zeros(excessRight,1)];
-    
-    % compute spectrogram
-    [~, specF, specT, specP] = spectrogram(x, specParams.win, specParams.ovl, specParams.nfft, fs);
-    %%% Note that P here is the PSD, using the default 'spectrumType' 
-    %%% argument
-    
-    % According to the MATLAB doc:
-    %   "The time values in <specT> correspond to the midpoint of each
-    %   segment."
-    % However, the surf() function does not plot bins - the data points
-    % correspond to edges. Therefore, create a new variable that 
-    % corresponds to the start of each segment instead. 
-    % Also, shift the time vector based on buffer.
-    specTAdjusted = specT - (sampleStep./fs)/2;
-    specTAdjusted = specTAdjusted - seconds(timeBuffer);
-    
-    % limit data to selected frequency range
-    if isempty(fRange)
-        fRange = [0, fs/2];
-    end
-    fStep = fs./specParams.nfft;
-    fInRange = specF >= fRange(1) - fStep & specF <= fRange(end) + fStep;
-    specF = specF(fInRange);
-    specP = specP(fInRange,:);
 
-    % smoothing
-    if doSmooth
-        smoothKernel = [1,2,1; 2,4,2; 1,2,1];
-        specP = conv2(specP, smoothKernel);
-        specP = specP(2:(end-1), 2:(end-1));
-    end
-    
-    % change to dB scale
-    specPLog = 10*log10(specP);
-    
-    % normalize to range [0,1]
-    %%% The other normalization method is to use mean of 0 and SD of 1
-    %specPLogNorm = specPLog - min(specPLog(:));
-    %specPLogNorm = specPLog/max(specPLog(:));
-    
-    % set x-axis properties based on input
-    %relTStart = duration(0, 0, (extendedSampleRange(1)-1)./fs);
-    relTStart = timeRange(1);
+    % set time properties based on X-Axis input options
+    relTStart = targetTimeRange(1) - leftTimeBuffer;
     switch xAxisScale
         case 'abstime'
             if isempty(xAxisStart)
                 % use timestamp
-                tStartPlot = relTStart + fileTimeStamp;
+                tSpecStart = relTStart + fileTimeStamp;
             else
                 % use specified start time
-                tStartPlot = xAxisStart;
+                tSpecStart = xAxisStart;
             end
-            specTPlot = duration(0, 0, specTAdjusted) + tStartPlot;
-            tRangePlot = [tStartPlot, tStartPlot + timeSpan];
+            tRangePlot = [tSpecStart, tSpecStart + targetTimeSpan] + leftTimeBuffer;
             xLabelStr = 'Date-Time';
             
         case 'reltime'
             if ~isempty(xAxisStart)
                 if isduration(xAxisStart)
-                    tStartPlot = xAxisStart;
+                    tSpecStart = xAxisStart;
                 elseif isnumeric(xAxisStart)
-                    tStartPlot = duration(0, 0, xAxisStart);
+                    tSpecStart = duration(0, 0, xAxisStart);
                 end
             else
-                tStartPlot = relTStart;
+                tSpecStart = relTStart;
             end
-            specTPlot = duration(0, 0, specTAdjusted) + tStartPlot;
-            tRangePlot = [tStartPlot, tStartPlot + timeSpan];
+            tRangePlot = [tSpecStart, tSpecStart + targetTimeSpan] + leftTimeBuffer;
             xLabelStr = 'Time [hh:mm:ss]';
             
         case 'sec'
-            % display as seconds
+            % display as numeric seconds
             if ~isempty(xAxisStart)
                 if isduration(xAxisStart)
-                    tStartPlot = seconds(xAxisStart);
+                    tSpecStart = seconds(xAxisStart);
                 elseif isnumeric(xAxisStart)
-                    tStartPlot = xAxisStart;
+                    tSpecStart = xAxisStart;
                 end
             else
-                tStartPlot = relTStart;
+                tSpecStart = seconds(relTStart);
             end
-            specTPlot = specTAdjusted + tStartPlot;
-            tRangePlot = [tStartPlot, tStartPlot + seconds(timeSpan)];
+            tRangePlot = [tSpecStart, tSpecStart + seconds(targetTimeSpan)] + seconds(leftTimeBuffer);
             xLabelStr = 'Time [s]';
             
         otherwise
             error('''%s'' is not a supported option for XAxisScale', xAxisScale)
     end
+
+    % compute spectrogram
+    spec = Spectrogram(x, fs, 'params',specParams, 'smooth',doSmooth, 't_start',tSpecStart);
 
     % initialize plot
     if isempty(ax)
@@ -345,17 +372,16 @@ function varargout = plotSpectrogram(varargin)
     ax.NextPlot = 'add';
 
     % do plot
-    surf(ax, specTPlot, specF, specPLog, 'EdgeColor', 'none');
-    axis(ax, 'xy');
-    view(ax, 0,90);
+    if isempty(fRange)
+        fRange = [0, fs/2];
+        truncArgs = {};
+    else
+        truncArgs = {'f_min',fRange(1)-spec.df, 'f_max',fRange(2)+spec.df};
+    end
+    spec.plot(ax, 'log_freqs',doLogFreqs, 'type',plotType, truncArgs{:})
     colormap(ax, colmap);
     
     % tweak plot
-    
-    %%% log frequency scale
-    if doLogFreqs
-        ax.YScale = 'log';
-    end
     
     %%% set y axis label and limits
     ylabel(ax, 'Frequency [Hz]');
@@ -370,65 +396,11 @@ function varargout = plotSpectrogram(varargin)
     
     %%% show tick marks above plot
     set(ax, 'Layer', 'Top')
-    
+
     % set output
     if nargout > 0
         varargout{1} = ax;
     end
-
-end
-
-
-%% getPresetSpecParams ----------------------------------------------------
-function params = getPresetSpecParams(presetName, fs)
-% Get pre-defined spectrogram parameters
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-    
-    switch presetName
-        case 'meridian'
-            specparam_win = round(fs*0.256);
-            specparam_ovl = specparam_win - round(fs*0.032);
-            specparam_nfft = 2^nextpow2(fs*(2048/8000));
-        case 'vanderlaan'
-            specparam_win = round(fs*0.2);
-            specparam_ovl = specparam_win - round(fs*0.064);
-            specparam_nfft = 2^nextpow2(fs/5);
-        case 'flogeras'
-            specparam_win = 256; % scipy default
-            specparam_ovl = round(0.5*specparam_win);
-            specparam_nfft = 1024;
-        case 'baumgartner'
-            specparam_win = round(fs*(640/2048));
-            specparam_ovl = round(0.8*specparam_win);
-            specparam_nfft = specparam_win;
-        case 'pamlab_general'
-            specparam_win = round(fs*0.128);
-            specparam_ovl = specparam_win - round(fs*0.032);
-            specparam_nfft = 2^nextpow2(fs/2);
-        case 'pamlab_whistles'
-            specparam_win = round(fs*0.05);
-            specparam_ovl = specparam_win - round(fs*0.01);
-            specparam_nfft = 2^nextpow2(fs/4);
-        otherwise
-            error('preset spectrogram parameters ''%s'' is not recognized', presetName);
-    end
-    
-    params = struct(...
-        'win', specparam_win,...
-        'ovl', specparam_ovl,...
-        'nfft', specparam_nfft);
-end
-
-
-%% validateSpecParams -----------------------------------------------------
-function validateSpecParams(params)
-% Make sure spectrogram parameters are in an acceptable format
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
-    assert(isstruct(params), '''SpecParams'' must be either a predefined string or a struct with fields ''win'', ''ovl'', and ''nfft''');
-    expectedFields = {'win'; 'ovl'; 'nfft'};
-    structFields = fieldnames(params);
-    assert(numel(structFields) == numel(intersect(expectedFields, structFields)), 'Invalid spectrogram parameter fields. Fields must be ''win'', ''ovl'', and ''nfft''.')
 end
 
 
@@ -458,5 +430,4 @@ function sampleRange = processTimeRange(interval, fs, fileDTStart, xAxisStart)
     
     % convert seconds to samples
     sampleRange = intSeconds.*fs + 1;
-    
 end

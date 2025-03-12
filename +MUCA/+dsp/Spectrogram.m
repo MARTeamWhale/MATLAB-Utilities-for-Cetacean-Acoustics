@@ -16,7 +16,7 @@ classdef Spectrogram
 % normalize frequency bins, or to set a group of values to zero, etc.
 %
 % Written by Wilfried Beslin
-% Last Updated 2025/03/11
+% Last Updated 2025/03/12
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
@@ -261,20 +261,14 @@ classdef Spectrogram
                 % process t_min
                 t_min_old = obj.t(1);
                 t_min_new = p.Results.t_min;
-                if isempty(t_min_new)
-                    t_min_new = t_min_old;
-                elseif t_min_new < t_min_old
-                    warning('Ignoring out-of-bounds value: t_min')
+                if isempty(t_min_new) || t_min_new < t_min_old
                     t_min_new = t_min_old;
                 end
 
                 % process t_max
                 t_max_old = obj.t(end);
                 t_max_new = p.Results.t_max;
-                if isempty(t_max_new)
-                    t_max_new = t_max_old;
-                elseif t_max_new > t_max_old
-                    warning('Ignoring out-of-bounds value: t_max')
+                if isempty(t_max_new) || t_max_new > t_max_old
                     t_max_new = t_max_old;
                 end
 
@@ -284,20 +278,14 @@ classdef Spectrogram
                 % process f_min
                 f_min_old = obj.f(1);
                 f_min_new = p.Results.f_min;
-                if isempty(f_min_new)
-                    f_min_new = f_min_old;
-                elseif f_min_new < f_min_old
-                    warning('Ignoring out-of-bounds value: f_min')
+                if isempty(f_min_new) || f_min_new < f_min_old
                     f_min_new = f_min_old;
                 end
 
                 % process f_max
                 f_max_old = obj.f(end);
                 f_max_new = p.Results.f_max;
-                if isempty(f_max_new)
-                    f_max_new = f_max_old;
-                elseif f_max_new > f_max_old
-                    warning('Ignoring out-of-bounds value: f_max')
+                if isempty(f_max_new) || f_max_new > f_max_old
                     f_max_new = f_max_old;
                 end
 

@@ -314,7 +314,7 @@ classdef Spectrogram
         % get.dt ..........................................................
         function val = get.dt(obj)
             % this value should be equal to fs/nfft
-            dt_vec = diff(obj.t);
+            dt_vec = diff(obj.t_relative);
             dt_mean = mean(dt_vec);
             dt_error = max(abs(dt_vec - dt_mean));
             if dt_error > 0

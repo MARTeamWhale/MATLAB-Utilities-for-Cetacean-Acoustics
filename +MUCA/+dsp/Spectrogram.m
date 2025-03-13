@@ -16,7 +16,7 @@ classdef Spectrogram
 % normalize frequency bins, or to set a group of values to zero, etc.
 %
 % Written by Wilfried Beslin
-% Last Updated 2025/03/12
+% Last Updated 2025/03/13
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
@@ -36,11 +36,10 @@ classdef Spectrogram
     properties (Access = public)
         t_start     % start time - may be numeric seconds, duration, or datetime (this will determine the type of 't')
     end
-    properties (SetAccess = private)
+    properties (SetAccess = private, Dependent)
         df          % frequency step, in Hz
         dt          % time step, in seconds
-    end
-    properties (SetAccess = private, Dependent)
+
         nf          % number of frequency bins
         nt          % number of time bins
     end
@@ -51,15 +50,25 @@ classdef Spectrogram
     
     % Constructor ---------------------------------------------------------
     methods
-        function obj = Spectrogram(x, fs, varargin)
+        function obj = Spectrogram(varargin)
         % Creates a Spectrogram object.
         %
-        % INPUT PARAMETERS:
+        % The object may be constructed from either a raw timeseries, or
+        % directly from pre-calculated spectrogram variables. 
+        %
+        % SYNTAX 1 (timeseries input):
+        %   obj = Spectrogram(x, fs)
+        %   obj = Spectrogram(x, fs, <Name>,<Value>)
+        %
+        % SYNTAX 2 (direct input):
+        %   obj = Spectrogram(f, t, psd, psd_type, winsize, fs)
+        %
+        % INPUT PARAMETERS (timeseries input):
         %   Required
         %   ...............................................................
         %   "x" - time series
         %   ...............................................................
-        %   "fs" - sampling rate
+        %   "fs" - sampling rate (Hz)
         %   ...............................................................
         %   
         %   Optional (Name-Value Pairs)
@@ -106,49 +115,138 @@ classdef Spectrogram
         %
         %       Default is 0 (numeric).
         %   ...............................................................
+        %
+        % INPUT PARAMETERS (direct input):
+        %   Required
+        %   ...............................................................
+        %   "f" - vector of frequencies (numeric)
+        %   ...............................................................
+        %   "t" - vector of STFT times. May be either numeric (seconds),
+        %       durations, or datetimes.
+        %   ...............................................................
+        %   "psd" - nf-by-nt matrix of power spectral density values,
+        %       either in linear magnitude scale or dB scale (see next 
+        %       argument).
+        %   ...............................................................
+        %   "psd_type" - char string specifying if the psd input values
+        %       are in linear magnitude scale ('psd'), or decibel scale 
+        %       ('psd_db').
+        %   ...............................................................
+        %   "winsize" - integer representing the STFT window size that was
+        %       used to generate the spectrogram.
+        %   ...............................................................
+        %   "fs" - sampling rate (Hz)
+        %   ...............................................................
         %   
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             
             p = inputParser;
-            p.addRequired('x', @(v)validateattributes(v,{'numeric'},{'vector'}))
-            p.addRequired('fs', @(v)validateattributes(v,{'numeric'},{'positive','integer','scalar'}))
-            p.addParameter('params', 'meridian');
-            p.addParameter('smooth', false);
-            p.addParameter('t_start', 0);
 
-            p.parse(x, fs, varargin{:});
-            params_input = p.Results.params;
-            do_smooth = p.Results.smooth;
-            t0 = p.Results.t_start;
-
-            % process spectrogram parameters
-            if isstruct(params_input)
-                params_struct = params_input;
+            % determine the input type based on number and type of input
+            % arguments
+            if nargin == 2 || (nargin > 2 && (ischar(varargin{3}) || isstring(varargin{3})))
+                build_type = 'timeseries';
+            elseif nargin == 6
+                build_type = 'direct';
             else
-                params_struct = obj.get_preset_parameters(params_input, fs);
+                build_type = 'unknown';
             end
-            [winvec, novl, nfft] = obj.parse_parameters(params_struct);
 
-            % compute spectrogram
-            %%% using the default 'spectrumType' argument, which returns
-            %%% the PSD
-            [~, spec_f, spec_t, spec_psd] = spectrogram(x, winvec, novl, nfft, fs);
-            
-            % determine time and frequency step
-            delta_t = (numel(winvec) - novl)/fs;
-            delta_f = fs/nfft;
-            
-            % set object properties
-            obj.psd_priv = spec_psd;
-            obj.f = spec_f;
-            obj.t_relative = spec_t;
-            obj.t_start = t0;
-            obj.df = delta_f;
-            obj.dt = delta_t;
+            % create Spectrogram object based on build type
+            switch build_type
+                case 'timeseries'
+                    % create spectrogram from time series
 
-            % smoothing
-            if do_smooth
-                obj = obj.smooth();
+                    % parse input
+                    p.addRequired('x', @(v)validateattributes(v,{'numeric'},{'vector'}))
+                    p.addRequired('fs', @(v)validateattributes(v,{'numeric'},{'positive','integer','scalar'}))
+                    p.addParameter('params', 'meridian');
+                    p.addParameter('smooth', false);
+                    p.addParameter('t_start', 0);
+        
+                    p.parse(varargin{:});
+                    x = p.Results.x;
+                    fs = p.Results.fs;
+                    params_input = p.Results.params;
+                    do_smooth = p.Results.smooth;
+                    t0 = p.Results.t_start;
+        
+                    % process spectrogram parameters
+                    if isstruct(params_input)
+                        params_struct = params_input;
+                    else
+                        params_struct = obj.get_preset_parameters(params_input, fs);
+                    end
+                    [winvec, novl, nfft] = obj.parse_parameters(params_struct);
+        
+                    % compute spectrogram
+                    %%% using the default 'spectrumType' argument, which
+                    %%% returns the PSD
+                    [~, spec_f, spec_t, spec_psd] = spectrogram(x, winvec, novl, nfft, fs);
+                    
+                    % set object properties
+                    obj.psd_priv = spec_psd;
+                    obj.f = spec_f;
+                    obj.t_relative = spec_t;
+                    obj.t_start = t0;
+        
+                    % smoothing
+                    if do_smooth
+                        obj = obj.smooth();
+                    end
+
+                case 'direct'
+                    % set the user-specified spectrogram variables
+
+                    % parse input
+                    p.addRequired('f', @(v)validateattributes(v,{'numeric'},{'nonnegative','increasing','vector'}))
+                    p.addRequired('t', @(v)validateattributes(v,{'numeric','duration','datetime'},{'vector'}))
+                    p.addRequired('psd', @(v)validateattributes(v,{'numeric'},{'2d'}))
+                    p.addRequired('psd_type', @(v)validateattributes(v,{'char','string'},{}))
+                    p.addRequired('winsize', @(v)validateattributes(v,{'numeric'},{'positive','integer','scalar'}))
+                    p.addRequired('fs', @(v)validateattributes(v,{'numeric'},{'positive','integer','scalar'}))
+
+                    p.parse(varargin{:});
+                    f_input = p.Results.f;
+                    t_input = p.Results.t;
+                    psd_input = p.Results.psd;
+                    psd_type = char(p.Results.psd_type);
+                    winsize = p.Results.winsize;
+                    fs = p.Results.fs;
+
+                    % translate vectors as needed
+                    f_assign = reshape(f_input, numel(f_input), 1);
+                    t_assign = reshape(t_input, 1, numel(t_input));
+
+                    % validate the PSD matrix and transform it if needed
+                    assert(all(size(psd_input) == [numel(f_input), numel(t_input)]), 'The psd matrix does not have the correct dimensions.')
+                    switch psd_type
+                        case 'psd'
+                            psd_assign = psd_input;
+                        case 'psd_db'
+                            psd_assign = 10.^(psd_input./10);
+                        otherwise
+                            error('The value of psd_type is not valid. Expected input to be ''psd'' or ''psd_db''.')
+                    end
+
+                    % get t_start and t_relative
+                    t_offset = (winsize/2)/fs;
+                    if isnumeric(t_assign)
+                        t0 = t_assign(1) - t_offset;
+                        t_rel_assign = t_assign - t0;
+                    else
+                        t0 = t_assign(1) - seconds(t_offset);
+                        t_rel_assign = seconds(t_assign - t0);
+                    end
+
+                    % assign properties
+                    obj.psd_priv = psd_assign;
+                    obj.f = f_assign;
+                    obj.t_relative = t_rel_assign;
+                    obj.t_start = t0;
+
+                otherwise
+                    error('Unexpected number or type of input arguments.')
             end
         end
     end
@@ -197,6 +295,34 @@ classdef Spectrogram
                 t_base = seconds(obj.t_relative);
             end
             val = t0 + t_base; % note: for duration objects, the first variable in this operation determines the format of the output.
+        end
+
+        % get.df ..........................................................
+        function val = get.df(obj)
+            % this value should be equal to (winsize - novl)/fs
+            df_vec = diff(obj.f);
+            df_mean = mean(df_vec);
+            df_error = max(abs(df_vec - df_mean));
+            if df_error > 0
+                round_pos = -ceil(log10(df_error)); % returns the position of the next digit to the right of the decimal that is above the error
+                val = round(df_mean, round_pos);
+            else
+                val = df_mean;
+            end
+        end
+
+        % get.dt ..........................................................
+        function val = get.dt(obj)
+            % this value should be equal to fs/nfft
+            dt_vec = diff(obj.t);
+            dt_mean = mean(dt_vec);
+            dt_error = max(abs(dt_vec - dt_mean));
+            if dt_error > 0
+                round_pos = -ceil(log10(dt_error)); % returns the position of the next digit to the right of the decimal that is above the error
+                val = round(dt_mean, round_pos);
+            else
+                val = dt_mean;
+            end
         end
         
         % get.nf ..........................................................

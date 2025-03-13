@@ -8,7 +8,8 @@ classdef Spectrogram
 % class does define a library of preset (sampling frequency-dependent)
 % spectrogram parameters that is accessible from the static method
 % "get_preset_parameters". Spectrogram objects may be constructed using one
-% of the presets, or with a custom set of parameters.
+% of the presets, or with a custom set of parameters. It is also possible
+% to build Spectrogram objects directly from pre-calculated STFT output.
 %
 % As a convenience feature, this class allows users to edit the PSD matrix
 % directly (using both linear and dB scale). This can be useful, e.g., to

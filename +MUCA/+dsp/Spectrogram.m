@@ -17,7 +17,7 @@ classdef Spectrogram
 % normalize frequency bins, or to set a group of values to zero, etc.
 %
 % Written by Wilfried Beslin
-% Last Updated 2025/03/13
+% Last Updated 2025/03/18
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
@@ -484,7 +484,7 @@ classdef Spectrogram
             % parse input
             p = inputParser;
             p.KeepUnmatched = true;
-            p.addOptional('ax', gca)
+            p.addOptional('ax', [])
             p.addParameter('log_freqs', false)
                 
             p.parse(varargin{:});
@@ -493,6 +493,9 @@ classdef Spectrogram
             surf_args = [fieldnames(p.Unmatched), struct2cell(p.Unmatched)]';
         
             % make plot
+            if isempty(ax)
+                ax = gca();
+            end
             obj.surf(ax, surf_args{:});
             
             % tweak plot
@@ -561,7 +564,7 @@ classdef Spectrogram
             % parse input
             p = inputParser;
             p.KeepUnmatched = true;
-            p.addOptional('ax', gca)
+            p.addOptional('ax', [])
             p.addParameter('type', 'pixels')
 
             p.parse(varargin{:});
@@ -631,6 +634,9 @@ classdef Spectrogram
             end
             
             % create surface
+            if isempty(ax)
+                ax = gca();
+            end
             s = surf(ax, t_plot, f_plot, psd_plot, 'EdgeColor','none', 'FaceColor',face_col_type);
             
             % return surface object if needed

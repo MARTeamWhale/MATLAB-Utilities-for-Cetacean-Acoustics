@@ -113,7 +113,7 @@ function varargout = plotSpectrogram(varargin)
 %   
 %
 % Written by Wilfried Beslin
-% Last updated 2025-03-12 using MATLAB R2024a
+% Last updated 2025-03-19 using MATLAB R2024a
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -145,7 +145,7 @@ function varargout = plotSpectrogram(varargin)
     p.addParameter('Smooth', false, @(a) validateattributes(a,{'logical'},{'scalar'}))
     p.addParameter('LogFreqs', false, @(a) validateattributes(a,{'logical'},{'scalar'}))
     p.addParameter('ColMap', 'parula', @(a) validateattributes(a,{'char','numeric'},{})) % may be either a colormap string or matrix
-    p.addParameter('XAxisScale', 'auto', @(a) validateattributes(a,{'char'},{'row'})) % options are 'auto', 'abstime', or 'reltime'
+    p.addParameter('XAxisScale', 'auto', @(a) validateattributes(a,{'char'},{'row'})) % options are 'auto', 'abstime', 'reltime', or 'sec'
     p.addParameter('XAxisStart', [], @(a) validateattributes(a,{'numeric','duration','datetime'},{'scalar'}))
     p.addParameter('CentreFirstSample', false, @(a) validateattributes(a,{'logical'},{'scalar'}))
     p.addParameter('PlotType', 'pixels', @(a) validateattributes(a,{'char'},{'row'}))
@@ -325,7 +325,7 @@ function varargout = plotSpectrogram(varargin)
                 tSpecStart = relTStart + fileTimeStamp;
             else
                 % use specified start time
-                tSpecStart = xAxisStart;
+                tSpecStart = xAxisStart - leftTimeBuffer;
             end
             tRangePlot = [tSpecStart, tSpecStart + targetTimeSpan] + leftTimeBuffer;
             xLabelStr = 'Date-Time';
@@ -333,9 +333,9 @@ function varargout = plotSpectrogram(varargin)
         case 'reltime'
             if ~isempty(xAxisStart)
                 if isduration(xAxisStart)
-                    tSpecStart = xAxisStart;
+                    tSpecStart = xAxisStart - leftTimeBuffer;
                 elseif isnumeric(xAxisStart)
-                    tSpecStart = duration(0, 0, xAxisStart);
+                    tSpecStart = duration(0, 0, xAxisStart) - leftTimeBuffer;
                 end
             else
                 tSpecStart = relTStart;
@@ -347,9 +347,9 @@ function varargout = plotSpectrogram(varargin)
             % display as numeric seconds
             if ~isempty(xAxisStart)
                 if isduration(xAxisStart)
-                    tSpecStart = seconds(xAxisStart);
+                    tSpecStart = seconds(xAxisStart - leftTimeBuffer);
                 elseif isnumeric(xAxisStart)
-                    tSpecStart = xAxisStart;
+                    tSpecStart = xAxisStart - seconds(leftTimeBuffer);
                 end
             else
                 tSpecStart = seconds(relTStart);

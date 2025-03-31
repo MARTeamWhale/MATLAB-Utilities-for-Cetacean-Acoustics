@@ -7,6 +7,7 @@ This library contains various MATLAB functions and classes that are helpful for 
 - ***algorithms*** - functions that perform miscellaneous data manipulation tasks, such as breaking up a vector into smaller pieces
 - ***audio*** - tools for working with and extracting data from audio files
 - ***dcs_analysis*** - tools for evaluating the performance of signal detection and/or classification systems
+- ***dsp*** - functions and classes to perform digital signal processing tasks, such as creating and manipulating spectrograms
 - ***filepaths*** - tools for locating files and manipulating file and folder path strings
 - ***io*** - tools for reading or writing common files (i.e., text or image files)
 - ***time*** - functions for working with dates and times

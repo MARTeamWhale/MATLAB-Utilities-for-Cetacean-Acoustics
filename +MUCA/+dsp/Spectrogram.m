@@ -17,7 +17,7 @@ classdef Spectrogram
 % normalize frequency bins, or to set a group of values to zero, etc.
 %
 % Written by Wilfried Beslin
-% Last Updated 2025/03/18
+% Last Updated 2025/06/30
 %
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
     
@@ -300,7 +300,7 @@ classdef Spectrogram
 
         % get.df ..........................................................
         function val = get.df(obj)
-            % this value should be equal to (winsize - novl)/fs
+            % this value should be equal to fs/nfft
             df_vec = diff(obj.f);
             df_mean = mean(df_vec);
             df_error = max(abs(df_vec - df_mean));
@@ -314,7 +314,7 @@ classdef Spectrogram
 
         % get.dt ..........................................................
         function val = get.dt(obj)
-            % this value should be equal to fs/nfft
+            % this value should be equal to (winsize - novl)/fs
             dt_vec = diff(obj.t_relative);
             dt_mean = mean(dt_vec);
             dt_error = max(abs(dt_vec - dt_mean));
